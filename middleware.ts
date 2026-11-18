@@ -3,7 +3,22 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  const pathname = request.nextUrl.pathname;
+
+  // Public routes required for Google OAuth
+  const publicRoutes = [
+    "/login",
+    "/unauthorized",
+    "/auth/callback"
+  ];
+
+  if (publicRoutes.some((route) => pathname.startsWith(route))) {
+    return NextResponse.next();
+  }
+
+  let response = NextResponse.next({
+    request
+  });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,7 +33,9 @@ export async function middleware(request: NextRequest) {
             request.cookies.set(name, value);
           });
 
-          response = NextResponse.next({ request });
+          response = NextResponse.next({
+            request
+          });
 
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options);
@@ -29,34 +46,20 @@ export async function middleware(request: NextRequest) {
   );
 
   const {
-    data: { user }
+    data: { user },
+    error
   } = await supabase.auth.getUser();
 
-  const isLogin = request.nextUrl.pathname.startsWith("/login");
-  const isUnauthorized =
-    request.nextUrl.pathname.startsWith("/unauthorized");
-
-  if (!user && !isLogin && !isUnauthorized) {
-    return NextResponse.redirect(new URL("/login", request.url));
+  if (error || !user) {
+    return NextResponse.redirect(
+      new URL("/login", request.url)
+    );
   }
 
-  if (user && !isLogin && !isUnauthorized) {
-    const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase();
+  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const userEmail = user.email?.trim().toLowerCase();
 
-    if (!adminEmail || user.email?.toLowerCase() !== adminEmail) {
-      return NextResponse.redirect(
-        new URL("/unauthorized", request.url)
-      );
-    }
-  }
-
-  if (user && isLogin) {
-    const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase();
-
-    if (user.email?.toLowerCase() === adminEmail) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
-
+  if (!adminEmail || userEmail !== adminEmail) {
     return NextResponse.redirect(
       new URL("/unauthorized", request.url)
     );
@@ -67,6 +70,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"
   ]
 };
