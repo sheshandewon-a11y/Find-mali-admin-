@@ -18,8 +18,21 @@ import {
   Users,
   AlertCircle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  UserRound,
+  CalendarDays,
+  Info,
+  Search,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+
+type InboxItem = {
+  id: number;
+  email_address: string;
+  created_at: string;
+  expires_at: string;
+};
 
 type DashboardData = {
   stats?: {
@@ -29,10 +42,11 @@ type DashboardData = {
     expiredInboxes: number;
     messagesLast24Hours: number;
   };
-  recentMessages?: any[];
-  inboxes?: any[];
-  messages?: any[];
+  inboxes?: InboxItem[];
   total?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
   rateLimitRecords?: number;
   rateLimit?: string;
   adminAuthentication?: string;
@@ -43,13 +57,21 @@ type DashboardData = {
     authentication: string;
     activityLogs: string;
   };
-  error?: string;
+};
+
+type InboxDetails = {
+  id: number;
+  email_address: string;
+  created_at: string;
+  expires_at: string;
+  status: string;
+  ipAddress: string | null;
+  ipTracking: string;
 };
 
 const navigation = [
   { name: "Overview", icon: LayoutDashboard },
   { name: "Inboxes", icon: Inbox },
-  { name: "Messages", icon: Mail },
   { name: "Security", icon: Shield },
   { name: "Activity Logs", icon: Activity },
   { name: "Settings", icon: Settings },
@@ -57,7 +79,6 @@ const navigation = [
 
 function formatDate(value: string) {
   if (!value) return "—";
-
   return new Date(value).toLocaleString();
 }
 
@@ -84,33 +105,57 @@ export default function Dashboard({ email }: { email: string }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
   const [data, setData] = useState<DashboardData>({});
   const [error, setError] = useState("");
 
-  async function loadData(section = active, refresh = false) {
+  const [inboxStatus, setInboxStatus] = useState("all");
+  const [inboxPage, setInboxPage] = useState(1);
+
+  const [selectedInbox, setSelectedInbox] =
+    useState<InboxDetails | null>(null);
+
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
+
+  async function loadData(
+    section = active,
+    refresh = false
+  ) {
     if (refresh) setRefreshing(true);
     else setLoading(true);
 
     setError("");
 
     try {
-      const response = await fetch(
-        `/api/admin/data?section=${encodeURIComponent(
-          section === "Activity Logs" ? "activity" : section.toLowerCase()
-        )}`,
-        { cache: "no-store" }
-      );
+      let url = `/api/admin/data?section=${encodeURIComponent(
+        section === "Activity Logs"
+          ? "activity"
+          : section.toLowerCase()
+      )}`;
+
+      if (section === "Inboxes") {
+        url += `&status=${inboxStatus}&page=${inboxPage}`;
+      }
+
+      const response = await fetch(url, {
+        cache: "no-store",
+      });
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || "Unable to load data");
+        throw new Error(
+          result.error || "Unable to load data"
+        );
       }
 
       setData(result);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Something went wrong"
+        err instanceof Error
+          ? err.message
+          : "Something went wrong"
       );
     } finally {
       setLoading(false);
@@ -127,8 +172,40 @@ export default function Dashboard({ email }: { email: string }) {
     }
 
     loadData(active);
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, inboxStatus, inboxPage]);
+
+  async function openInbox(id: number) {
+    setSelectedInbox(null);
+    setDetailsError("");
+    setDetailsLoading(true);
+
+    try {
+      const response = await fetch(
+        `/api/admin/data?section=inbox&id=${id}`,
+        { cache: "no-store" }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || "Unable to load inbox details"
+        );
+      }
+
+      setSelectedInbox(result.inbox);
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load inbox details"
+      );
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
 
   async function logout() {
     setLoggingOut(true);
@@ -137,6 +214,12 @@ export default function Dashboard({ email }: { email: string }) {
     await supabase.auth.signOut();
 
     window.location.href = "/login";
+  }
+
+  function changeStatus(status: string) {
+    setInboxStatus(status);
+    setInboxPage(1);
+    setSelectedInbox(null);
   }
 
   const stats = [
@@ -150,7 +233,7 @@ export default function Dashboard({ email }: { email: string }) {
       title: "Total Messages",
       value: data.stats?.totalMessages,
       icon: Mail,
-      note: "Received messages",
+      note: "Count only — content hidden",
     },
     {
       title: "Active Inboxes",
@@ -216,6 +299,7 @@ export default function Dashboard({ email }: { email: string }) {
                 onClick={() => {
                   setActive(item.name);
                   setMobileOpen(false);
+                  setSelectedInbox(null);
                 }}
                 className={`nav-item w-full ${
                   active === item.name ? "nav-active" : ""
@@ -257,8 +341,12 @@ export default function Dashboard({ email }: { email: string }) {
             </button>
 
             <div>
-              <p className="text-xs text-slate-500">ADMINISTRATION</p>
-              <h2 className="text-xl font-semibold mt-1">{active}</h2>
+              <p className="text-xs text-slate-500">
+                ADMINISTRATION
+              </p>
+              <h2 className="text-xl font-semibold mt-1">
+                {active}
+              </h2>
             </div>
           </div>
 
@@ -276,8 +364,12 @@ export default function Dashboard({ email }: { email: string }) {
             </button>
 
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium">Administrator</p>
-              <p className="text-xs text-slate-500">{email}</p>
+              <p className="text-sm font-medium">
+                Administrator
+              </p>
+              <p className="text-xs text-slate-500">
+                {email}
+              </p>
             </div>
 
             <div className="avatar">
@@ -339,7 +431,9 @@ export default function Dashboard({ email }: { email: string }) {
                 <section className="panel-card">
                   <div className="flex items-center gap-3 mb-5">
                     <Server className="text-cyan-400" />
-                    <h3 className="font-semibold">System Overview</h3>
+                    <h3 className="font-semibold">
+                      System Overview
+                    </h3>
                   </div>
 
                   <div className="system-row">
@@ -367,139 +461,261 @@ export default function Dashboard({ email }: { email: string }) {
 
                 <section className="panel-card">
                   <div className="flex items-center gap-3 mb-5">
-                    <Clock3 className="text-pink-400" />
-                    <h3 className="font-semibold">Recent Messages</h3>
+                    <Shield className="text-pink-400" />
+                    <h3 className="font-semibold">
+                      Message Privacy
+                    </h3>
                   </div>
 
-                  {data.recentMessages?.length ? (
-                    <div className="space-y-4">
-                      {data.recentMessages.map((message) => (
-                        <div
-                          key={message.id}
-                          className="border-b border-slate-800 pb-3 last:border-0"
-                        >
-                          <p className="text-sm font-medium truncate">
-                            {message.subject || "(No subject)"}
-                          </p>
-                          <p className="text-xs text-slate-400 mt-1 truncate">
-                            {message.sender || "Unknown sender"}
-                          </p>
-                          <p className="text-[11px] text-slate-500 mt-1">
-                            {formatDate(message.received_at)}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="empty-state">
-                      <Mail size={28} />
-                      <p className="mt-3">No recent messages</p>
-                    </div>
-                  )}
+                  <p className="text-sm text-slate-300">
+                    Incoming email content is not displayed in
+                    this Admin Dashboard.
+                  </p>
+
+                  <p className="text-xs text-slate-500 mt-3">
+                    Only aggregate message counts are used
+                    for dashboard statistics.
+                  </p>
                 </section>
               </div>
             </>
           ) : active === "Inboxes" ? (
-            <section className="panel-card">
-              <div className="flex justify-between items-center mb-5">
-                <div>
-                  <h3 className="font-semibold text-lg">All Inboxes</h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {data.total ?? 0} records in database
-                  </p>
-                </div>
-                <Inbox className="text-cyan-400" />
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-slate-500 border-b border-slate-800">
-                    <tr>
-                      <th className="py-3 pr-4">Email Address</th>
-                      <th className="py-3 pr-4">Created</th>
-                      <th className="py-3 pr-4">Expires</th>
-                      <th className="py-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.inboxes?.map((item) => {
-                      const isActive =
-                        new Date(item.expires_at).getTime() > Date.now();
-
-                      return (
-                        <tr
-                          key={item.id}
-                          className="border-b border-slate-800/70"
-                        >
-                          <td className="py-4 pr-4 text-cyan-300">
-                            {item.email_address}
-                          </td>
-                          <td className="py-4 pr-4 text-slate-400 text-xs">
-                            {formatDate(item.created_at)}
-                          </td>
-                          <td className="py-4 pr-4 text-slate-400 text-xs">
-                            {formatDate(item.expires_at)}
-                          </td>
-                          <td className="py-4">
-                            <Status active={isActive} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {!data.inboxes?.length && (
-                <p className="text-center text-slate-500 py-10">
-                  No inboxes found.
-                </p>
-              )}
-            </section>
-          ) : active === "Messages" ? (
-            <section className="panel-card">
-              <div className="mb-5">
-                <h3 className="font-semibold text-lg">Received Messages</h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  {data.total ?? 0} messages in database
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                {data.messages?.map((message) => (
-                  <div
-                    key={message.id}
-                    className="p-4 rounded-xl bg-[#0B1220] border border-slate-800"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">
-                          {message.subject || "(No subject)"}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-2">
-                          From: {message.sender || "Unknown sender"}
-                        </p>
-                        <p className="text-xs text-cyan-300 mt-1 break-all">
-                          Inbox: {message.inboxAddress}
-                        </p>
-                      </div>
-
-                      <Mail className="text-cyan-400 shrink-0" size={20} />
-                    </div>
-
-                    <p className="text-[11px] text-slate-500 mt-3">
-                      {formatDate(message.received_at)}
+            <>
+              <section className="panel-card">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+                  <div>
+                    <h3 className="font-semibold text-lg">
+                      Inbox Management
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {data.total ?? 0} matching inboxes
                     </p>
                   </div>
-                ))}
 
-                {!data.messages?.length && (
+                  <Inbox className="text-cyan-400" />
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-5">
+                  {[
+                    { label: "All", value: "all" },
+                    { label: "Active", value: "active" },
+                    { label: "Expired", value: "expired" },
+                  ].map((filter) => (
+                    <button
+                      key={filter.value}
+                      onClick={() => changeStatus(filter.value)}
+                      className={`px-4 py-2 rounded-lg text-sm border transition ${
+                        inboxStatus === filter.value
+                          ? "border-cyan-400 bg-cyan-400/10 text-cyan-300"
+                          : "border-slate-700 text-slate-400 hover:border-slate-500"
+                      }`}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-slate-500 border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 pr-4">Email Address</th>
+                        <th className="py-3 pr-4">Created</th>
+                        <th className="py-3 pr-4">Expires</th>
+                        <th className="py-3 pr-4">Status</th>
+                        <th className="py-3">Details</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {data.inboxes?.map((item) => {
+                        const isActive =
+                          new Date(item.expires_at).getTime() >
+                          Date.now();
+
+                        return (
+                          <tr
+                            key={item.id}
+                            className="border-b border-slate-800/70 hover:bg-white/[0.02]"
+                          >
+                            <td className="py-4 pr-4 text-cyan-300 break-all">
+                              {item.email_address}
+                            </td>
+
+                            <td className="py-4 pr-4 text-slate-400 text-xs whitespace-nowrap">
+                              {formatDate(item.created_at)}
+                            </td>
+
+                            <td className="py-4 pr-4 text-slate-400 text-xs whitespace-nowrap">
+                              {formatDate(item.expires_at)}
+                            </td>
+
+                            <td className="py-4 pr-4">
+                              <Status active={isActive} />
+                            </td>
+
+                            <td className="py-4">
+                              <button
+                                onClick={() => openInbox(item.id)}
+                                className="text-cyan-400 hover:text-cyan-200 text-xs border border-cyan-400/30 rounded-lg px-3 py-2"
+                              >
+                                View
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {!data.inboxes?.length && (
                   <p className="text-center text-slate-500 py-10">
-                    No messages found.
+                    No inboxes found.
                   </p>
                 )}
-              </div>
-            </section>
+
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-6 pt-5 border-t border-slate-800">
+                  <p className="text-xs text-slate-500">
+                    Page {data.page ?? inboxPage} of{" "}
+                    {Math.max(1, data.totalPages ?? 1)}
+                    {" · "}
+                    {data.total ?? 0} records
+                  </p>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() =>
+                        setInboxPage((p) => Math.max(1, p - 1))
+                      }
+                      disabled={inboxPage <= 1}
+                      className="flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-700 text-sm disabled:opacity-30"
+                    >
+                      <ChevronLeft size={16} />
+                      Previous
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        setInboxPage((p) => p + 1)
+                      }
+                      disabled={
+                        inboxPage >= (data.totalPages ?? 1)
+                      }
+                      className="flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-700 text-sm disabled:opacity-30"
+                    >
+                      Next
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              {(detailsLoading || selectedInbox || detailsError) && (
+                <section className="panel-card mt-5">
+                  {detailsLoading ? (
+                    <div className="flex items-center gap-3 text-slate-400 py-5">
+                      <RefreshCw className="animate-spin" />
+                      Loading inbox details...
+                    </div>
+                  ) : detailsError ? (
+                    <p className="text-red-400 text-sm">
+                      {detailsError}
+                    </p>
+                  ) : selectedInbox ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3 mb-6">
+                        <div className="flex items-center gap-3">
+                          <UserRound className="text-cyan-400" />
+                          <div>
+                            <h3 className="font-semibold text-lg">
+                              Inbox Details
+                            </h3>
+                            <p className="text-xs text-slate-500">
+                              Record #{selectedInbox.id}
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => setSelectedInbox(null)}
+                          className="text-slate-400 hover:text-white"
+                          aria-label="Close details"
+                        >
+                          <X />
+                        </button>
+                      </div>
+
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div className="p-4 rounded-xl bg-[#0B1220] border border-slate-800">
+                          <p className="text-xs text-slate-500 mb-2">
+                            Email Address
+                          </p>
+                          <p className="text-cyan-300 break-all">
+                            {selectedInbox.email_address}
+                          </p>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-[#0B1220] border border-slate-800">
+                          <p className="text-xs text-slate-500 mb-2">
+                            Inbox Status
+                          </p>
+                          <Status
+                            active={
+                              selectedInbox.status === "active"
+                            }
+                          />
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-[#0B1220] border border-slate-800">
+                          <p className="text-xs text-slate-500 mb-2 flex items-center gap-2">
+                            <CalendarDays size={14} />
+                            Created At
+                          </p>
+                          <p className="text-sm text-slate-300">
+                            {formatDate(selectedInbox.created_at)}
+                          </p>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-[#0B1220] border border-slate-800">
+                          <p className="text-xs text-slate-500 mb-2 flex items-center gap-2">
+                            <Clock3 size={14} />
+                            Expires At
+                          </p>
+                          <p className="text-sm text-slate-300">
+                            {formatDate(selectedInbox.expires_at)}
+                          </p>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-[#0B1220] border border-slate-800 sm:col-span-2">
+                          <p className="text-xs text-slate-500 mb-2">
+                            IP Address
+                          </p>
+
+                          <p className="text-sm text-amber-400">
+                            Not available
+                          </p>
+
+                          <p className="text-xs text-slate-500 mt-2">
+                            This Inbox was created before
+                            individual IP tracking was configured.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 flex gap-3 text-xs text-slate-500">
+                        <Info size={16} className="shrink-0" />
+                        <p>
+                          Only Inbox metadata is displayed here.
+                          Incoming email content and message bodies
+                          are not shown.
+                        </p>
+                      </div>
+                    </>
+                  ) : null}
+                </section>
+              )}
+            </>
           ) : active === "Security" ? (
             <section className="panel-card">
               <div className="flex items-center gap-3 mb-6">
@@ -543,16 +759,22 @@ export default function Dashboard({ email }: { email: string }) {
               </div>
 
               <p className="text-xs text-slate-500 mt-5">
-                Security information is read-only. No changes are made to
-                your email backend.
+                Security information is read-only. No changes
+                are made to your email backend.
               </p>
             </section>
           ) : active === "Activity Logs" ? (
             <section className="panel-card">
-              <Activity className="text-pink-400 mb-4" size={25} />
-              <h3 className="font-semibold text-lg">Activity Logs</h3>
+              <Activity
+                className="text-pink-400 mb-4"
+                size={25}
+              />
+              <h3 className="font-semibold text-lg">
+                Activity Logs
+              </h3>
               <p className="text-sm text-slate-400 mt-3">
-                Activity logging is not configured in the current database.
+                Activity logging is not configured in the
+                current database.
               </p>
               <p className="text-xs text-slate-500 mt-2">
                 No activity records are being invented or displayed.
@@ -560,8 +782,13 @@ export default function Dashboard({ email }: { email: string }) {
             </section>
           ) : (
             <section className="panel-card">
-              <Settings className="text-cyan-400 mb-4" size={25} />
-              <h3 className="font-semibold text-lg">Settings</h3>
+              <Settings
+                className="text-cyan-400 mb-4"
+                size={25}
+              />
+              <h3 className="font-semibold text-lg">
+                Settings
+              </h3>
               <p className="text-sm text-slate-400 mt-3">
                 Admin account: {email}
               </p>
