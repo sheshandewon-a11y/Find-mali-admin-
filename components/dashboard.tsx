@@ -23,7 +23,6 @@ import {
   UserRound,
   CalendarDays,
   Info,
-  Search,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -122,16 +121,17 @@ export default function Dashboard({ email }: { email: string }) {
     section = active,
     refresh = false
   ) {
-    if (refresh) setRefreshing(true);
-    else setLoading(true);
+    if (refresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
 
     setError("");
 
     try {
       let url = `/api/admin/data?section=${encodeURIComponent(
-        section === "Activity Logs"
-          ? "activity"
-          : section.toLowerCase()
+        section.toLowerCase()
       )}`;
 
       if (section === "Inboxes") {
@@ -164,7 +164,10 @@ export default function Dashboard({ email }: { email: string }) {
   }
 
   useEffect(() => {
-    if (active === "Activity Logs") {
+    if (
+      active === "Activity Logs" ||
+      active === "Settings"
+    ) {
       setData({});
       setLoading(false);
       setError("");
@@ -210,10 +213,12 @@ export default function Dashboard({ email }: { email: string }) {
   async function logout() {
     setLoggingOut(true);
 
-    const supabase = createClient();
-    await supabase.auth.signOut();
-
-    window.location.href = "/login";
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } finally {
+      window.location.href = "/login";
+    }
   }
 
   function changeStatus(status: string) {
@@ -353,7 +358,11 @@ export default function Dashboard({ email }: { email: string }) {
           <div className="flex items-center gap-3">
             <button
               onClick={() => loadData(active, true)}
-              disabled={refreshing || active === "Activity Logs"}
+              disabled={
+                refreshing ||
+                active === "Activity Logs" ||
+                active === "Settings"
+              }
               className="p-2 rounded-lg border border-slate-700 hover:border-cyan-400 disabled:opacity-40"
               aria-label="Refresh data"
             >
@@ -596,9 +605,7 @@ export default function Dashboard({ email }: { email: string }) {
                     </button>
 
                     <button
-                      onClick={() =>
-                        setInboxPage((p) => p + 1)
-                      }
+                      onClick={() => setInboxPage((p) => p + 1)}
                       disabled={
                         inboxPage >= (data.totalPages ?? 1)
                       }
@@ -661,9 +668,7 @@ export default function Dashboard({ email }: { email: string }) {
                             Inbox Status
                           </p>
                           <Status
-                            active={
-                              selectedInbox.status === "active"
-                            }
+                            active={selectedInbox.status === "active"}
                           />
                         </div>
 
